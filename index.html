@@ -57,6 +57,13 @@ h3{font-size:14px;margin:0 0 2px;font-weight:650}
 .parcial .hist{display:flex;gap:4px 10px;flex-wrap:wrap;margin-top:1px}
 .parcial .hist .x{font-size:13px;padding:0 4px}
 .parteform{display:flex;gap:6px;align-items:center;padding:3px 0 6px 26px;flex-wrap:wrap}
+.dividas{display:grid;gap:12px}
+.divida .topo2{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.divida .falta{font-size:20px;font-weight:650}
+.divida .abate{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.divida input{width:130px;border:1px solid #cfccc1;border-radius:8px;padding:5px 9px;background:#fff}
+.divida .hist{display:flex;gap:4px 12px;flex-wrap:wrap;font-size:13px;color:var(--tinta2);margin-top:6px}
+.divida .hist .x{font-size:13px;padding:0 4px}
 .parteform input{width:120px;border:1px solid #cfccc1;border-radius:8px;padding:4px 8px;background:#fff}
 .item span:first-of-type{flex:1;min-width:0}
 .item.pago span{color:var(--tinta3);text-decoration:line-through}
@@ -252,10 +259,10 @@ function aConferirTotal(){
 
 /* ---------- abas ---------- */
 const nomeCartao=()=>'Cartão '+S.cartao.nome;
-const abasLista=()=>[['resumo','Resumo'],['despesas','Despesas'],['cartao',nomeCartao()],['receitas','Receitas']];
+const abasLista=()=>[['resumo','Resumo'],['despesas','Despesas'],['cartao',nomeCartao()],['receitas','Receitas'],['dividas','Abater cartões']];
 function desenhar(){
   document.getElementById('abas').innerHTML=abasLista().map(([k,n])=>`<button role="tab" aria-selected="${k===aba}" data-aba="${k}">${n}</button>`).join('');
-  ({resumo:telaResumo,despesas:telaDespesas,cartao:telaCartao,receitas:telaReceitas})[aba]();
+  ({resumo:telaResumo,despesas:telaDespesas,cartao:telaCartao,receitas:telaReceitas,dividas:telaDividas})[aba]();
 }
 document.getElementById('abas').addEventListener('click',e=>{const k=e.target.dataset.aba;if(k){aba=k;desenhar()}});
 
@@ -357,6 +364,22 @@ document.getElementById('tela').addEventListener('click',e=>{
     l.splice(Number(b.dataset.tiraParte),1);if(!l.length)delete S.parciais[k];
     salvar();desenhar();
   }
+  else if(b.id==='cadTodos'){
+    S.dividas=S.dividas||[];
+    document.querySelectorAll('form[data-cad-cartao]').forEach(f=>{
+      const c=S.despesas.find(x=>x.id===f.dataset.cadCartao),total=lerNumero(f.total.value);
+      if(total>0)S.dividas.push({id:novoId('d'),conta:c.id,nome:c.nome,total,abatimentos:[]});
+    });
+    salvar();desenhar();
+  }
+  else if(b.dataset.apagaDivida){
+    const c=S.dividas.find(x=>x.id===b.dataset.apagaDivida);
+    if(confirm('Apagar a dívida "'+c.nome+'" e todos os abatimentos dela?')){S.dividas=S.dividas.filter(x=>x!==c);salvar();desenhar()}
+  }
+  else if(b.dataset.tiraAbate){
+    const c=S.dividas.find(x=>x.id===b.dataset.divida);
+    if(confirm('Apagar este abatimento?')){c.abatimentos.splice(Number(b.dataset.tiraAbate),1);salvar();desenhar()}
+  }
   else if(b.dataset.manter){
     const c=S.despesas.find(d=>d.cartao),m=S.cartao.mantidos=S.cartao.mantidos||{};
     (b.dataset.manter==='todos'?Object.keys(c.valores):[b.dataset.manter]).forEach(k=>{m[k]=c.valores[k]});
@@ -390,6 +413,11 @@ document.getElementById('tela').addEventListener('change',e=>{
     }
     salvar();desenhar();return;
   }
+  if(t.dataset.dividaTotal){
+    const c=S.dividas.find(x=>x.id===t.dataset.dividaTotal),n=lerNumero(t.value);
+    if(!n||n<=0){t.value=fmt(c.total);return}
+    c.total=n;salvar();desenhar();return;
+  }
   if(t.id==='soFalta'){soFalta=t.checked;desenhar();return}
   if(t.id==='incluirConferir'){S.cartao.incluirConferir=t.checked;salvar();desenhar();return}
   if(t.dataset.grupo){S.despesas.find(d=>d.id===t.dataset.grupo).grupo=t.value;salvar();return}
@@ -414,6 +442,24 @@ document.getElementById('tela').addEventListener('submit',e=>{
     const h=new Date(),k=mes+'|'+c.id;
     S.parciais=S.parciais||{};(S.parciais[k]=S.parciais[k]||[]).push({v:n,d:h.getFullYear()+'-'+String(h.getMonth()+1).padStart(2,'0')+'-'+String(h.getDate()).padStart(2,'0')});
     parteAberta='';salvar();desenhar();return;
+  }
+  if(f.dataset.cadCartao){
+    const c=S.despesas.find(x=>x.id===f.dataset.cadCartao),total=lerNumero(d.get('total'));
+    if(!total||total<=0){alert('Digite o total da dívida.');return}
+    (S.dividas=S.dividas||[]).push({id:novoId('d'),conta:c.id,nome:c.nome,total,abatimentos:[]});salvar();desenhar();return;
+  }
+  if(f.id==='novaDivida'){
+    const nome=d.get('nome').trim(),total=lerNumero(d.get('total'));
+    if(!nome||!total||total<=0){alert('Preencha o nome e o total da dívida.');return}
+    (S.dividas=S.dividas||[]).push({id:novoId('d'),nome,total,abatimentos:[]});salvar();desenhar();return;
+  }
+  if(f.dataset.abater){
+    const c=S.dividas.find(x=>x.id===f.dataset.abater),n=lerNumero(d.get('valor')),falta=faltaDivida(c);
+    if(!n||n<=0){alert('Digite o valor pago.');return}
+    if(n>falta){alert('Esse valor passa do que falta nesta dívida, que é '+brl(falta)+'.');return}
+    const h=new Date();
+    c.abatimentos.push({v:n,d:h.getFullYear()+'-'+String(h.getMonth()+1).padStart(2,'0')+'-'+String(h.getDate()).padStart(2,'0')});
+    salvar();desenhar();return;
   }
   if(f.id==='novaConta'){
     const nome=d.get('nome').trim();if(!nome)return;
@@ -531,6 +577,45 @@ function telaCartao(){
     </tbody>
     <tfoot><tr><td class="nome">Total do mês</td><td></td><td></td>${ms.map(m=>`<td data-total="cartao|${m}" class="${m===h?'atual':''}">${fmt(totalCartao(m))}</td>`).join('')}</tr></tfoot>
   </table></div>`;
+}
+
+/* ---------- dívidas ---------- */
+const abatido=d=>r2(d.abatimentos.reduce((t,a)=>t+a.v,0));
+const faltaDivida=d=>r2(Math.max(0,d.total-abatido(d)));
+const sugestao=d=>r2(mesesDe(hoje()).reduce((t,m)=>t+valorConta(d,m),0));
+const semCadastro=()=>S.despesas.filter(d=>d.grupo==='Cartões e crediário'&&!(S.dividas||[]).some(x=>x.conta===d.id));
+function telaDividas(){
+  const L=S.dividas||[],falta=semCadastro();
+  const tot=r2(L.reduce((t,d)=>t+d.total,0)),ab=r2(L.reduce((t,d)=>t+Math.min(d.total,abatido(d)),0));
+  const cartoes=L.map(d=>{
+    const a=abatido(d),f=faltaDivida(d),pct=d.total?Math.min(100,Math.round(a/d.total*100)):0;
+    return `<div class="cartao divida">
+      <div class="topo2"><div><h3>${esc(d.nome)}</h3><p class="sub">Abatido ${brl(a)} de ${brl(d.total)}</p></div>
+        <div style="text-align:right"><div class="falta">${f>0?brl(f):'Quitada'}</div>${f>0?'<div class="sub">falta pagar</div>':''}</div></div>
+      <div class="progresso"><i style="width:${pct}%"></i></div>
+      ${f>0?`<form class="abate" data-abater="${esc(d.id)}"><input name="valor" inputmode="decimal" placeholder="Valor pago" aria-label="Valor para abater de ${esc(d.nome)}" required><button class="btn peq pri">Abater</button></form>`:''}
+      <div class="abate"><label class="sub">Total da dívida <input data-divida-total="${esc(d.id)}" inputmode="decimal" value="${fmt(d.total)}" aria-label="Total da dívida ${esc(d.nome)}"></label><button class="btn peq" data-apaga-divida="${esc(d.id)}">Apagar dívida</button></div>
+      ${d.abatimentos.length?`<div class="hist">${d.abatimentos.map((x,i)=>`<span>${x.d.split('-').reverse().join('/')}: ${fmt(x.v)}<button class="x" data-tira-abate="${i}" data-divida="${esc(d.id)}" aria-label="Apagar abatimento de ${fmt(x.v)}">×</button></span>`).join('')}</div>`:''}
+    </div>`;
+  }).join('');
+  document.getElementById('tela').innerHTML=`
+  <div class="barra"><div><h2>Abater cartões e dívidas</h2><p class="sub">Confira o total que você deve em cada cartão e vá abatendo. Isso não muda as contas de cada mês.</p></div></div>
+  ${L.length?`<div class="kpis">
+    <div class="cartao kpi"><div class="rot">Total das dívidas</div><div class="val">${brl(tot)}</div></div>
+    <div class="cartao kpi"><div class="rot">Já abatido</div><div class="val">${brl(ab)}</div></div>
+    <div class="cartao kpi"><div class="rot">Falta pagar</div><div class="val">${brl(r2(tot-ab))}</div></div>
+  </div>`:''}
+  <form class="form" id="novaDivida">
+    <label>Nova dívida<input class="largo" name="nome" required></label>
+    <label>Total que deve<input class="curto" name="total" inputmode="decimal" required></label>
+    <button class="btn">Adicionar</button>
+  </form>
+  <div class="dividas">${cartoes}</div>
+  ${falta.length?`<div class="cartao" style="margin-top:14px">
+    <div class="topo2" style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap"><div><h3>Seus cartões</h3><p class="sub">O valor sugerido é a soma do que está lançado daqui para frente. Troque pelo total real da dívida, se for diferente.</p></div>
+      <button class="btn pri" id="cadTodos">Cadastrar todos</button></div>
+    ${falta.map(d=>`<form class="abate" data-cad-cartao="${esc(d.id)}" style="justify-content:space-between;border-bottom:1px solid var(--linha2);padding-bottom:6px"><span>${esc(d.nome)}</span><span style="display:flex;gap:6px;align-items:center"><input name="total" inputmode="decimal" value="${sugestao(d)?fmt(sugestao(d)):''}" placeholder="Total" aria-label="Total da dívida ${esc(d.nome)}" style="width:130px;border:1px solid #cfccc1;border-radius:8px;padding:5px 9px;background:#fff" required><button class="btn peq">Cadastrar</button></span></form>`).join('')}
+  </div>`:''}`;
 }
 
 /* ---------- gráfico de barras ---------- */
