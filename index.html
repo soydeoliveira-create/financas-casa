@@ -57,6 +57,18 @@ h3{font-size:14px;margin:0 0 2px;font-weight:650}
 .parcial .hist{display:flex;gap:4px 10px;flex-wrap:wrap;margin-top:1px}
 .parcial .hist .x{font-size:13px;padding:0 4px}
 .parteform{display:flex;gap:6px;align-items:center;padding:3px 0 6px 26px;flex-wrap:wrap}
+.prio{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--linha2);flex-wrap:wrap}
+.prio .nomep{flex:1;min-width:150px;display:flex;align-items:center;gap:9px;cursor:pointer}
+.prio .nomep input{width:17px;height:17px;accent-color:var(--marca);margin:0}
+.prio .quando{font-size:13px;color:var(--tinta2);min-width:128px}
+.prio .quando.atraso{color:var(--ruim);font-weight:650}
+.prio .dia{font-size:13px;color:var(--tinta2);display:flex;align-items:center;gap:5px}
+.prio .dia input{width:50px;border:1px solid #cfccc1;border-radius:8px;padding:3px 6px;background:#fff;text-align:center}
+.prio .valor{min-width:90px;text-align:right;font-weight:650}
+.estrela{border:0;background:none;cursor:pointer;font-size:19px;line-height:1;color:#b9b6aa;padding:2px 4px;border-radius:6px}
+.estrela[aria-pressed=true]{color:#c98500}
+.secao{font-size:13.5px;font-weight:650;color:var(--tinta2);padding:14px 0 4px;display:flex;justify-content:space-between;border-bottom:1px solid var(--linha)}
+.secao:first-of-type{padding-top:0}
 .dividas{display:grid;gap:12px}
 .divida .topo2{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
 .divida .falta{font-size:20px;font-weight:650}
@@ -259,10 +271,10 @@ function aConferirTotal(){
 
 /* ---------- abas ---------- */
 const nomeCartao=()=>'Cartão '+S.cartao.nome;
-const abasLista=()=>[['resumo','Resumo'],['despesas','Despesas'],['cartao',nomeCartao()],['receitas','Receitas'],['dividas','Abater cartões']];
+const abasLista=()=>[['resumo','Resumo'],['prioridades','Prioridades do mês'],['despesas','Despesas'],['cartao',nomeCartao()],['receitas','Receitas'],['dividas','Abater cartões']];
 function desenhar(){
   document.getElementById('abas').innerHTML=abasLista().map(([k,n])=>`<button role="tab" aria-selected="${k===aba}" data-aba="${k}">${n}</button>`).join('');
-  ({resumo:telaResumo,despesas:telaDespesas,cartao:telaCartao,receitas:telaReceitas,dividas:telaDividas})[aba]();
+  ({resumo:telaResumo,prioridades:telaPrioridades,despesas:telaDespesas,cartao:telaCartao,receitas:telaReceitas,dividas:telaDividas})[aba]();
 }
 document.getElementById('abas').addEventListener('click',e=>{const k=e.target.dataset.aba;if(k){aba=k;desenhar()}});
 
@@ -372,6 +384,11 @@ document.getElementById('tela').addEventListener('click',e=>{
     });
     salvar();desenhar();
   }
+  else if(b.dataset.prio){
+    const k=mes+'|'+b.dataset.prio;S.prioridades=S.prioridades||{};
+    if(S.prioridades[k])delete S.prioridades[k];else S.prioridades[k]=true;
+    salvar();desenhar();
+  }
   else if(b.dataset.apagaDivida){
     const c=S.dividas.find(x=>x.id===b.dataset.apagaDivida);
     if(confirm('Apagar a dívida "'+c.nome+'" e todos os abatimentos dela?')){S.dividas=S.dividas.filter(x=>x!==c);salvar();desenhar()}
@@ -411,6 +428,13 @@ document.getElementById('tela').addEventListener('change',e=>{
       }
       delete S.pagos[k];
     }
+    salvar();desenhar();return;
+  }
+  if(t.dataset.dia){
+    const c=S.despesas.find(x=>x.id===t.dataset.dia),v=t.value.trim(),n=Number(v);
+    if(!v)delete c.dia;
+    else if(Number.isInteger(n)&&n>=1&&n<=31)c.dia=n;
+    else{alert('Digite um dia de 1 a 31.');t.value=c.dia||'';return}
     salvar();desenhar();return;
   }
   if(t.dataset.dividaTotal){
@@ -577,6 +601,71 @@ function telaCartao(){
     </tbody>
     <tfoot><tr><td class="nome">Total do mês</td><td></td><td></td>${ms.map(m=>`<td data-total="cartao|${m}" class="${m===h?'atual':''}">${fmt(totalCartao(m))}</td>`).join('')}</tr></tfoot>
   </table></div>`;
+}
+
+/* ---------- prioridades ---------- */
+function diasAte(d,ym){
+  if(!d.dia)return null;
+  const[a,m]=ym.split('-').map(Number),ult=new Date(a,m,0).getDate();
+  const venc=new Date(a,m-1,Math.min(d.dia,ult)),h=new Date();h.setHours(0,0,0,0);
+  return Math.round((venc-h)/864e5);
+}
+function textoPrazo(n){
+  if(n===null)return 'sem dia de vencimento';
+  if(n<0)return 'Vencida há '+(-n)+(n===-1?' dia':' dias');
+  if(n===0)return 'Vence hoje';
+  if(n===1)return 'Vence amanhã';
+  return 'Vence em '+n+' dias';
+}
+function telaPrioridades(){
+  const lista=todosMeses();
+  if(!mes){const h=hoje();mes=lista.includes(h)?h:primeiroMesContas()}
+  if(!lista.includes(mes))mes=lista[0];
+  const i=lista.indexOf(mes);
+  const contas=S.despesas.filter(d=>valorConta(d,mes)>0);
+  const abertas=contas.filter(d=>!quitada(d,mes));
+  const falta=d=>r2(valorConta(d,mes)-pagoDe(d,mes));
+  const marcada=d=>!!(S.prioridades||{})[mes+'|'+d.id];
+  const ordem=(a,b)=>{const x=diasAte(a,mes),y=diasAte(b,mes);if(x===null&&y===null)return falta(b)-falta(a);if(x===null)return 1;if(y===null)return -1;return x-y};
+  const grupos=[
+    ['Marcadas como prioridade',abertas.filter(marcada)],
+    ['Vencidas',abertas.filter(d=>!marcada(d)&&diasAte(d,mes)!==null&&diasAte(d,mes)<0)],
+    ['Vencem nos próximos 7 dias',abertas.filter(d=>!marcada(d)&&diasAte(d,mes)!==null&&diasAte(d,mes)>=0&&diasAte(d,mes)<=7)],
+    ['Vencem depois',abertas.filter(d=>!marcada(d)&&diasAte(d,mes)!==null&&diasAte(d,mes)>7)],
+    ['Sem dia de vencimento',abertas.filter(d=>!marcada(d)&&diasAte(d,mes)===null)]
+  ];
+  const soma=l=>r2(l.reduce((t,d)=>t+falta(d),0));
+  const venc=abertas.filter(d=>diasAte(d,mes)!==null&&diasAte(d,mes)<0);
+  const semana=abertas.filter(d=>{const n=diasAte(d,mes);return n!==null&&n>=0&&n<=7});
+  const linha=d=>{
+    const n=diasAte(d,mes),aberta=parteAberta===mes+'|'+d.id,sp=somaParcial(d,mes),id=esc(d.id);
+    return `<div class="prio">
+      <button class="estrela" data-prio="${id}" aria-pressed="${marcada(d)}" aria-label="Prioridade: ${esc(d.nome)}" title="Marcar como prioridade">★</button>
+      <label class="nomep"><input type="checkbox" data-pago="${id}"><span>${esc(d.nome)}</span></label>
+      <span class="quando ${n!==null&&n<0?'atraso':''}">${textoPrazo(n)}</span>
+      <label class="dia">Dia <input data-dia="${id}" inputmode="numeric" maxlength="2" value="${d.dia||''}" aria-label="Dia de vencimento de ${esc(d.nome)}"></label>
+      <span class="valor">${fmt(falta(d))}${sp?`<span class="sub" style="display:block;font-weight:400;margin:0">já pagou ${fmt(sp)}</span>`:''}</span>
+      ${aberta?'':`<button class="btn peq" data-parte="${id}">Pagar parte</button>`}
+    </div>${aberta?`<form class="parteform" id="parte" data-conta="${id}"><input name="valor" inputmode="decimal" placeholder="Valor pago" aria-label="Valor pago de ${esc(d.nome)}" required><button class="btn peq pri">Lançar</button><button type="button" class="btn peq" data-parte="${id}">Cancelar</button></form>`:''}`;
+  };
+  const blocos=grupos.filter(g=>g[1].length).map(([n,l])=>`<div class="secao"><span>${n}</span><span>${fmt(soma(l))}</span></div>${[...l].sort(ordem).map(linha).join('')}`).join('');
+  document.getElementById('tela').innerHTML=`
+  <div class="barra">
+    <div class="mesnav">
+      <button class="btn" data-mes="-1" aria-label="Mês anterior" ${i<=0?'disabled':''}>‹</button>
+      <strong>${nomeMes(mes)}</strong>
+      <button class="btn" data-mes="1" aria-label="Próximo mês" ${i>=lista.length-1?'disabled':''}>›</button>
+    </div>
+  </div>
+  <div class="kpis">
+    <div class="cartao kpi"><div class="rot">Falta pagar no mês</div><div class="val">${brl(soma(abertas))}</div><div class="nota">${abertas.length} ${abertas.length===1?'conta':'contas'} em aberto</div></div>
+    <div class="cartao kpi"><div class="rot">Vencidas</div><div class="val ${venc.length?'neg':''}">${brl(soma(venc))}</div><div class="nota">${venc.length} ${venc.length===1?'conta':'contas'}</div></div>
+    <div class="cartao kpi"><div class="rot">Vencem em 7 dias</div><div class="val">${brl(soma(semana))}</div><div class="nota">${semana.length} ${semana.length===1?'conta':'contas'}</div></div>
+  </div>
+  <div class="cartao">
+    <p class="sub" style="margin:0 0 12px">Digite o dia de vencimento uma vez e ele vale para todos os meses. Clique na estrela para pôr uma conta no topo.</p>
+    ${blocos||'<p class="sub">Nenhuma conta em aberto neste mês.</p>'}
+  </div>`;
 }
 
 /* ---------- dívidas ---------- */
