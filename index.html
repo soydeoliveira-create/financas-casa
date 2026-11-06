@@ -101,7 +101,7 @@ footer div{display:flex;gap:8px;flex-wrap:wrap}
 .check input{accent-color:var(--marca)}
 body.fora nav,body.fora footer{display:none}
 .estado{max-width:1240px;margin:0 auto;padding:6px 24px 0;font-size:13px;color:var(--tinta2);text-align:right;min-height:25px}
-.estado.erro{color:var(--ruim);font-weight:600}
+.estado.erro{color:#fff;background:var(--ruim);font-weight:600;font-size:15px;text-align:center;padding:10px 24px;max-width:none}
 .entrada{max-width:380px;margin:50px auto;display:grid;gap:12px}
 .entrada label{display:grid;gap:4px;font-size:13.5px;color:var(--tinta2)}
 .entrada input{border:1px solid #cfccc1;border-radius:8px;padding:9px 11px;background:#fff;font-size:15px;color:var(--tinta)}
@@ -171,7 +171,7 @@ async function gravar(){
     if(!pendente)aviso('Tudo salvo');
   }catch(e){
     pendente=true;
-    aviso('Não consegui salvar. Tentando de novo…',true);
+    aviso('ATENÇÃO: seus dados NÃO foram salvos. Motivo: '+((e&&e.message)||'sem conexão')+'. Tentando de novo…',true);
     clearTimeout(timer);timer=setTimeout(gravar,5000);
   }finally{
     gravando=false;
