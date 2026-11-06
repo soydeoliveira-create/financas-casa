@@ -286,7 +286,7 @@ function telaResumo(){
     <div class="cartao kpi"><div class="rot">Saldo do mês</div>${kSaldo}</div>
     <div class="cartao kpi"><div class="rot">Acumulado até aqui</div><div class="val ${acumulado(mes)<0?'neg':''}">${brl(acumulado(mes))}</div><div class="nota">soma dos meses completos</div></div>
   </div>
-  ${avisos.length?`<div class="aviso"><h3>A conferir</h3><ul>${avisos.join('')}</ul></div>`:''}
+  ${avisos.length?`<div class="aviso"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap"><h3>A conferir</h3>${avisos.some(a=>a.includes('data-manter'))?'<button class="btn peq" data-manter="todos">Manter todos os meus valores</button>':''}</div><ul>${avisos.join('')}</ul></div>`:''}
   <div class="colunas">
     <div class="pilha">
       <div class="cartao grafico"><h3>Receitas e despesas</h3><p class="sub">Meses que já têm receita lançada.</p>
@@ -315,7 +315,7 @@ function listaAvisos(){
   const c=S.despesas.find(d=>d.cartao);
   if(c)Object.keys(c.valores).sort().forEach(m=>{
     const a=c.valores[m],b=totalCartao(m),d=r2(a-b);
-    if(Math.abs(d)>=.01)o.push(`<li><span>${curtoMes(m)}: a planilha de despesas diz <b>${brl(a)}</b> para o cartão e a do cartão soma <b>${brl(b)}</b>.</span><button class="btn peq" data-usar="${m}">Usar o do cartão</button></li>`);
+    if(Math.abs(d)>=.01&&(S.cartao.mantidos||{})[m]!==a)o.push(`<li><span>${curtoMes(m)}: você lançou <b>${brl(a)}</b> e as parcelas do cartão somam <b>${brl(b)}</b>.</span><span style="display:flex;gap:6px"><button class="btn peq" data-manter="${m}">Manter o meu</button><button class="btn peq" data-usar="${m}">Usar a soma do cartão</button></span></li>`);
   });
   const t=aConferirTotal();
   if(t>0&&!S.cartao.incluirConferir)o.push(`<li><span>Há <b>${brl(t)}</b> em parcelas do cartão que ficaram fora da soma original.</span><button class="btn peq" data-incluir="1">Incluir na conta</button></li>`);
@@ -333,6 +333,11 @@ document.getElementById('tela').addEventListener('click',e=>{
     salvar();desenhar();
   }
   else if(b.dataset.usar){const c=S.despesas.find(d=>d.cartao);delete c.valores[b.dataset.usar];salvar();desenhar()}
+  else if(b.dataset.manter){
+    const c=S.despesas.find(d=>d.cartao),m=S.cartao.mantidos=S.cartao.mantidos||{};
+    (b.dataset.manter==='todos'?Object.keys(c.valores):[b.dataset.manter]).forEach(k=>{m[k]=c.valores[k]});
+    salvar();desenhar();
+  }
   else if(b.dataset.incluir){S.cartao.incluirConferir=true;salvar();desenhar()}
   else if(b.dataset.apagaConta){
     const d=S.despesas.find(x=>x.id===b.dataset.apagaConta);
