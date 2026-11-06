@@ -140,7 +140,7 @@ const CURTO=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','
 
 let S=null;
 let usuario=null,versao=0,temLinha=false;
-let timer=null,gravando=false,pendente=false,travado=false;
+let timer=null,gravando=false,pendente=false,travado=false,ultimoErro='';
 let aba='resumo';
 let mes=null;
 let soFalta=true;
@@ -170,7 +170,7 @@ async function gravar(){
     versao=r.data[0].versao;temLinha=true;
     if(!pendente)aviso('Tudo salvo');
   }catch(e){
-    pendente=true;
+    pendente=true;ultimoErro=(e&&(e.message||e.code))||'sem conexão';
     aviso('ATENÇÃO: seus dados NÃO foram salvos. Motivo: '+((e&&e.message)||'sem conexão')+'. Tentando de novo…',true);
     clearTimeout(timer);timer=setTimeout(gravar,5000);
   }finally{
@@ -546,7 +546,7 @@ document.getElementById('arquivo').addEventListener('change',async e=>{
   try{
     const o=JSON.parse(await f.text());
     if(!valido(o))throw 0;
-    if(!S||confirm('Trocar tudo o que está aqui pelo conteúdo dessa cópia?')){S=o;mes=null;salvar();desenhar()}
+    if(!S||confirm('Trocar tudo o que está aqui pelo conteúdo dessa cópia?'))await carregarCopia(o);
   }catch(_){alert('Esse arquivo não é uma cópia deste sistema.')}
 });
 document.getElementById('sair').addEventListener('click',async()=>{
@@ -583,6 +583,26 @@ function telaImportar(){
   document.getElementById('tela').innerHTML=`<div class="cartao entrada"><h2>Carregue seus dados</h2>
     <p class="sub">Escolha o arquivo com os dados para começar. Depois disso eles ficam guardados na sua conta.</p>
     <button class="btn pri" id="importar">Escolher arquivo</button></div>`;
+}
+async function carregarCopia(o){
+  const antes=S;
+  document.getElementById('tela').innerHTML='<div class="cartao entrada"><h2>Gravando seus dados…</h2></div>';
+  S=o;mes=null;pendente=true;ultimoErro='';
+  await gravar();
+  let motivo=pendente?ultimoErro:'';
+  if(!motivo&&!travado){
+    const r=await sb.from('financas').select('versao').eq('dono',usuario.id).maybeSingle();
+    if(r.error)motivo=r.error.message;
+    else if(!r.data)motivo='o banco aceitou, mas a linha não voltou na leitura';
+  }
+  if(!motivo){aviso('Tudo salvo');desenhar();return}
+  clearTimeout(timer);timer=null;pendente=false;S=antes;
+  aviso('');
+  document.getElementById('abas').innerHTML='';
+  document.getElementById('tela').innerHTML=`<div class="cartao entrada"><h2>Os dados não foram gravados</h2>
+    <p class="erro-txt">Motivo: ${esc(motivo)}</p>
+    <p class="sub">Tire um print desta tela.</p>
+    <button class="btn pri" id="importar">Tentar de novo</button></div>`;
 }
 async function abrirDados(){
   document.body.classList.remove('fora');
