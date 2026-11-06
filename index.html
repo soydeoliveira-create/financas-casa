@@ -50,7 +50,14 @@ h3{font-size:14px;margin:0 0 2px;font-weight:650}
 .aviso li{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;font-size:14px}
 .grupo{display:flex;justify-content:space-between;font-weight:650;font-size:13.5px;color:var(--tinta2);padding:12px 0 4px;border-bottom:1px solid var(--linha)}
 .grupo:first-of-type{padding-top:6px}
-.item{display:flex;align-items:center;gap:9px;padding:5px 0;border-bottom:1px solid var(--linha2);cursor:pointer}
+.conta{border-bottom:1px solid var(--linha2);padding:3px 0}
+.conta .linha{display:flex;align-items:center;gap:8px}
+.item{display:flex;align-items:center;gap:9px;padding:3px 0;cursor:pointer;flex:1;min-width:0}
+.parcial{font-size:13px;color:var(--tinta2);padding:1px 0 3px 26px}
+.parcial .hist{display:flex;gap:4px 10px;flex-wrap:wrap;margin-top:1px}
+.parcial .hist .x{font-size:13px;padding:0 4px}
+.parteform{display:flex;gap:6px;align-items:center;padding:3px 0 6px 26px;flex-wrap:wrap}
+.parteform input{width:120px;border:1px solid #cfccc1;border-radius:8px;padding:4px 8px;background:#fff}
 .item span:first-of-type{flex:1;min-width:0}
 .item.pago span{color:var(--tinta3);text-decoration:line-through}
 .item input{width:17px;height:17px;accent-color:var(--marca);margin:0}
@@ -141,6 +148,7 @@ const CURTO=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','
 let S=null;
 let usuario=null,versao=0,temLinha=false;
 let timer=null,gravando=false,pendente=false,travado=false,ultimoErro='';
+let parteAberta='';
 let aba='resumo';
 let mes=null;
 let soFalta=true;
@@ -210,6 +218,10 @@ function valorConta(d,ym){
   if(typeof v==='number')return v;
   return d.cartao?totalCartao(ym):0;
 }
+function parciais(d,ym){return (S.parciais||{})[ym+'|'+d.id]||[]}
+function somaParcial(d,ym){return r2(parciais(d,ym).reduce((t,p)=>t+p.v,0))}
+function quitada(d,ym){const v=valorConta(d,ym);return !!S.pagos[ym+'|'+d.id]||(v>0&&somaParcial(d,ym)>=v)}
+function pagoDe(d,ym){const v=valorConta(d,ym);return quitada(d,ym)?v:Math.min(v,somaParcial(d,ym))}
 function totalDespesas(ym){return r2(S.despesas.reduce((t,d)=>t+valorConta(d,ym),0))}
 function totalReceitas(ym){return r2(S.receitas.reduce((t,r)=>t+(r.valores[ym]||0),0))}
 function temContas(ym){return S.despesas.some(d=>!d.cartao&&typeof d.valores[ym]==='number')}
@@ -260,14 +272,16 @@ function telaResumo(){
   if(fechado(mes))kSaldo=`<div class="val ${saldo<0?'neg':'pos'}">${brl(saldo)}</div><div class="nota">receitas menos despesas do mês</div>`;
   else kSaldo=`<div class="val">—</div><div class="nota">${!completo?'faltam as contas deste mês':'falta a receita deste mês'}</div>`;
   const pagos=S.despesas.filter(d=>valorConta(d,mes)>0);
-  const pagoT=r2(pagos.filter(d=>S.pagos[mes+'|'+d.id]).reduce((t,d)=>t+valorConta(d,mes),0));
+  const pagoT=r2(pagos.reduce((t,d)=>t+pagoDe(d,mes),0));
   const pct=des?Math.round(pagoT/des*100):0;
   const blocos=GRUPOS.map(g=>{
     const it=pagos.filter(d=>d.grupo===g);if(!it.length)return'';
     const tot=it.reduce((t,d)=>t+valorConta(d,mes),0);
     return `<div class="grupo"><span>${esc(g)}</span><span>${fmt(tot)}</span></div>`+it.map(d=>{
-      const p=!!S.pagos[mes+'|'+d.id];
-      return `<label class="item ${p?'pago':''}"><input type="checkbox" data-pago="${esc(d.id)}" ${p?'checked':''}><span>${esc(d.nome)}</span><span>${fmt(valorConta(d,mes))}</span></label>`;
+      const p=quitada(d,mes),v=valorConta(d,mes),ps=parciais(d,mes),sp=somaParcial(d,mes),aberta=parteAberta===mes+'|'+d.id;
+      const hist=ps.length?`<div class="parcial">${p?'Pago em partes':`Pago ${fmt(sp)} · falta <b>${fmt(r2(v-sp))}</b>`}<div class="hist">${ps.map((x,i)=>`<span>${x.d.split('-').reverse().slice(0,2).join('/')}: ${fmt(x.v)}<button class="x" data-tira-parte="${i}" data-conta="${esc(d.id)}" aria-label="Apagar pagamento de ${fmt(x.v)}">×</button></span>`).join('')}</div></div>`:'';
+      const form=aberta&&!p?`<form class="parteform" id="parte" data-conta="${esc(d.id)}"><input name="valor" inputmode="decimal" placeholder="Valor pago" aria-label="Valor pago de ${esc(d.nome)}" required><button class="btn peq pri">Lançar</button><button type="button" class="btn peq" data-parte="${esc(d.id)}">Cancelar</button></form>`:'';
+      return `<div class="conta"><div class="linha"><label class="item ${p?'pago':''}"><input type="checkbox" data-pago="${esc(d.id)}" ${p?'checked':''}><span>${esc(d.nome)}</span><span>${fmt(v)}</span></label>${p||aberta?'':`<button class="btn peq" data-parte="${esc(d.id)}">Pagar parte</button>`}</div>${hist}${form}</div>`;
     }).join('');
   }).join('');
   const avisos=listaAvisos();
@@ -333,6 +347,16 @@ document.getElementById('tela').addEventListener('click',e=>{
     salvar();desenhar();
   }
   else if(b.dataset.usar){const c=S.despesas.find(d=>d.cartao);delete c.valores[b.dataset.usar];salvar();desenhar()}
+  else if(b.dataset.parte){
+    const k=mes+'|'+b.dataset.parte;parteAberta=parteAberta===k?'':k;desenhar();
+    const i=document.querySelector('#parte input');if(i)i.focus();
+  }
+  else if(b.dataset.tiraParte){
+    const k=mes+'|'+b.dataset.conta,l=S.parciais[k];
+    if(!confirm('Apagar este pagamento?'))return;
+    l.splice(Number(b.dataset.tiraParte),1);if(!l.length)delete S.parciais[k];
+    salvar();desenhar();
+  }
   else if(b.dataset.manter){
     const c=S.despesas.find(d=>d.cartao),m=S.cartao.mantidos=S.cartao.mantidos||{};
     (b.dataset.manter==='todos'?Object.keys(c.valores):[b.dataset.manter]).forEach(k=>{m[k]=c.valores[k]});
@@ -354,7 +378,18 @@ document.getElementById('tela').addEventListener('click',e=>{
 });
 document.getElementById('tela').addEventListener('change',e=>{
   const t=e.target;
-  if(t.dataset.pago){const k=mes+'|'+t.dataset.pago;if(t.checked)S.pagos[k]=true;else delete S.pagos[k];salvar();desenhar();return}
+  if(t.dataset.pago){
+    const k=mes+'|'+t.dataset.pago,tem=(S.parciais||{})[k];
+    if(t.checked)S.pagos[k]=true;
+    else{
+      if(tem&&tem.length){
+        if(!confirm('Desmarcar apaga os pagamentos em partes desta conta neste mês. Continuar?')){t.checked=true;return}
+        delete S.parciais[k];
+      }
+      delete S.pagos[k];
+    }
+    salvar();desenhar();return;
+  }
   if(t.id==='soFalta'){soFalta=t.checked;desenhar();return}
   if(t.id==='incluirConferir'){S.cartao.incluirConferir=t.checked;salvar();desenhar();return}
   if(t.dataset.grupo){S.despesas.find(d=>d.id===t.dataset.grupo).grupo=t.value;salvar();return}
@@ -372,6 +407,14 @@ document.getElementById('tela').addEventListener('change',e=>{
 document.getElementById('tela').addEventListener('submit',e=>{
   e.preventDefault();const f=e.target,d=new FormData(f);
   if(f.id==='login'){entrar(d.get('email').trim(),d.get('senha'));return}
+  if(f.id==='parte'){
+    const c=S.despesas.find(x=>x.id===f.dataset.conta),n=lerNumero(d.get('valor')),falta=r2(valorConta(c,mes)-pagoDe(c,mes));
+    if(!n||n<=0){alert('Digite o valor pago.');return}
+    if(n>falta){alert('Esse valor passa do que falta nesta conta, que é '+brl(falta)+'.');return}
+    const h=new Date(),k=mes+'|'+c.id;
+    S.parciais=S.parciais||{};(S.parciais[k]=S.parciais[k]||[]).push({v:n,d:h.getFullYear()+'-'+String(h.getMonth()+1).padStart(2,'0')+'-'+String(h.getDate()).padStart(2,'0')});
+    parteAberta='';salvar();desenhar();return;
+  }
   if(f.id==='novaConta'){
     const nome=d.get('nome').trim();if(!nome)return;
     S.despesas.push({id:novoId('c'),nome,grupo:d.get('grupo'),valores:{}});salvar();desenhar();
