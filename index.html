@@ -70,6 +70,12 @@ h3{font-size:14px;margin:0 0 2px;font-weight:650}
 .secao{font-size:13.5px;font-weight:650;color:var(--tinta2);padding:14px 0 4px;display:flex;justify-content:space-between;border-bottom:1px solid var(--linha)}
 .secao:first-of-type{padding-top:0}
 .dividas{display:grid;gap:12px}
+.plano{background:var(--marca2);border:1px solid #c6dcd6;border-radius:12px;padding:14px 18px;margin-bottom:14px}
+.plano h3{margin-bottom:6px}
+.plano p{margin:4px 0;font-size:14.5px}
+.plano ul{margin:6px 0 0;padding-left:18px;font-size:14.5px;display:grid;gap:3px}
+.meta-mes{font-size:15px;margin-top:6px}
+.meta-mes b{font-size:17px}
 .moverform{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:4px 0 8px 36px;font-size:14px}
 .selo{display:inline-block;font-size:12px;font-weight:650;border-radius:20px;padding:2px 9px;background:var(--aviso-bg);border:1px solid var(--aviso-linha);color:#7a5200;margin-left:6px;vertical-align:2px}
 .origens{font-size:13px;color:var(--tinta2);margin-top:6px;display:grid;gap:4px}
@@ -222,6 +228,7 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 function lerNumero(s){
   s=String(s).replace(/[R$\s]/g,'');if(!s)return null;
   if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');
+  else if(/^-?\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,'');
   const n=Number(s);return Number.isFinite(n)?r2(n):NaN;
 }
 const ymNum=ym=>{const[a,m]=ym.split('-').map(Number);return a*12+m-1};
@@ -288,10 +295,10 @@ function aConferirTotal(){
 
 /* ---------- abas ---------- */
 const nomeCartao=()=>'Cartões';
-const abasLista=()=>[['resumo','Resumo'],['prioridades','Prioridades do mês'],['despesas','Despesas'],['cartao',nomeCartao()],['receitas','Receitas'],['dividas','Abater cartões']];
+const abasLista=()=>[['resumo','Resumo'],['prioridades','Prioridades do mês'],['despesas','Despesas'],['cartao',nomeCartao()],['receitas','Receitas'],['dividas','Abater cartões'],['reservas','Reservas']];
 function desenhar(){
   document.getElementById('abas').innerHTML=abasLista().map(([k,n])=>`<button role="tab" aria-selected="${k===aba}" data-aba="${k}">${n}</button>`).join('');
-  ({resumo:telaResumo,prioridades:telaPrioridades,despesas:telaDespesas,cartao:telaCartao,receitas:telaReceitas,dividas:telaDividas})[aba]();
+  ({resumo:telaResumo,prioridades:telaPrioridades,despesas:telaDespesas,cartao:telaCartao,receitas:telaReceitas,dividas:telaDividas,reservas:telaReservas})[aba]();
 }
 document.getElementById('abas').addEventListener('click',e=>{const k=e.target.dataset.aba;if(k){aba=k;desenhar()}});
 
@@ -429,6 +436,18 @@ document.getElementById('tela').addEventListener('click',e=>{
     if(S.prioridades[k])delete S.prioridades[k];else S.prioridades[k]=true;
     salvar();desenhar();
   }
+  else if(b.dataset.sugere){
+    const v=r2(mediaGrupo(ESSENCIAIS)*3);
+    (S.reservas=S.reservas||[]).push({id:novoId('m'),nome:'Reserva de emergência',meta:v,prazo:prazoPadrao(),movs:[]});salvar();desenhar();
+  }
+  else if(b.dataset.apagaReserva){
+    const r=S.reservas.find(x=>x.id===b.dataset.apagaReserva);
+    if(confirm('Apagar a meta "'+r.nome+'" e o histórico dela?')){S.reservas=S.reservas.filter(x=>x!==r);salvar();desenhar()}
+  }
+  else if(b.dataset.tiraMov){
+    const r=S.reservas.find(x=>x.id===b.dataset.reserva);
+    if(confirm('Apagar este movimento?')){r.movs.splice(Number(b.dataset.tiraMov),1);salvar();desenhar()}
+  }
   else if(b.dataset.apagaDivida){
     const c=S.dividas.find(x=>x.id===b.dataset.apagaDivida);
     if(confirm('Apagar a dívida "'+c.nome+'" e todos os abatimentos dela?'+((c.origens||[]).length?' Os valores que vieram das contas do mês voltam para os meses de origem.':''))){
@@ -481,6 +500,16 @@ document.getElementById('tela').addEventListener('change',e=>{
     else{alert('Digite um dia de 1 a 31.');t.value=c.dia||'';return}
     salvar();desenhar();return;
   }
+  if(t.dataset.reservaMeta){
+    const r=S.reservas.find(x=>x.id===t.dataset.reservaMeta),n=lerNumero(t.value);
+    if(!n||n<=0){t.value=fmt(r.meta);return}
+    r.meta=n;salvar();desenhar();return;
+  }
+  if(t.dataset.reservaPrazo){
+    const r=S.reservas.find(x=>x.id===t.dataset.reservaPrazo);
+    if(/^\d{4}-\d{2}$/.test(t.value)){r.prazo=t.value;salvar();desenhar()}else t.value=r.prazo;
+    return;
+  }
   if(t.dataset.situacao){S.dividas.find(x=>x.id===t.dataset.situacao).negociacao=t.value;salvar();desenhar();return}
   if(t.dataset.dividaTotal){
     const c=S.dividas.find(x=>x.id===t.dataset.dividaTotal),n=lerNumero(t.value);
@@ -518,6 +547,19 @@ document.getElementById('tela').addEventListener('submit',e=>{
     const c=S.despesas.find(x=>x.id===f.dataset.cadCartao),total=lerNumero(d.get('total'));
     if(!total||total<=0){alert('Digite o total da dívida.');return}
     (S.dividas=S.dividas||[]).push({id:novoId('d'),conta:c.id,nome:c.nome,total,abatimentos:[]});salvar();desenhar();return;
+  }
+  if(f.id==='novaReserva'){
+    const nome=d.get('nome').trim(),meta=lerNumero(d.get('meta')),prazo=d.get('prazo');
+    if(!nome||!meta||meta<=0||!/^\d{4}-\d{2}$/.test(prazo)){alert('Preencha o nome, o valor da meta e o prazo.');return}
+    (S.reservas=S.reservas||[]).push({id:novoId('m'),nome,meta,prazo,movs:[]});salvar();desenhar();return;
+  }
+  if(f.dataset.mov){
+    const r=S.reservas.find(x=>x.id===f.dataset.mov),n=lerNumero(d.get('valor')),tipo=(e.submitter&&e.submitter.value)||'guardar';
+    if(!n||n<=0){alert('Digite o valor.');return}
+    if(tipo==='retirar'&&n>guardado(r)){alert('Você só tem '+brl(guardado(r))+' guardado nesta meta.');return}
+    const h=new Date();
+    r.movs.push({v:tipo==='retirar'?-n:n,d:h.getFullYear()+'-'+String(h.getMonth()+1).padStart(2,'0')+'-'+String(h.getDate()).padStart(2,'0')});
+    salvar();desenhar();return;
   }
   if(f.id==='novaDivida'){
     const nome=d.get('nome').trim(),total=lerNumero(d.get('total'));
@@ -733,6 +775,91 @@ function telaPrioridades(){
     <p class="sub" style="margin:0 0 12px">Digite o dia de vencimento uma vez e ele vale para todos os meses. Clique na estrela para pôr uma conta no topo.</p>
     ${blocos||'<p class="sub">Nenhuma conta em aberto neste mês.</p>'}
   </div>`;
+}
+
+/* ---------- reservas ---------- */
+const ESSENCIAIS=['Casa','Educação','Carro','Saúde'];
+const guardado=r=>r2(r.movs.reduce((t,m)=>t+m.v,0));
+const mesesAte=prazo=>ymNum(prazo)-ymNum(hoje())+1;
+const porMes=r=>{const f=r2(r.meta-guardado(r)),n=mesesAte(r.prazo);return f<=0?0:n<=0?f:r2(f/n)};
+function sobraMedia(){
+  const ms=todosMeses().filter(fechado);
+  if(!ms.length)return null;
+  return {media:r2(ms.reduce((t,m)=>t+totalReceitas(m)-totalDespesas(m),0)/ms.length),meses:ms};
+}
+function mediaGrupo(grupos){
+  const ms=todosMeses().filter(temContas);if(!ms.length)return 0;
+  return r2(ms.reduce((t,m)=>t+S.despesas.filter(d=>grupos.includes(d.grupo)).reduce((a,d)=>a+valorConta(d,m),0),0)/ms.length);
+}
+function maioresGrupos(){
+  const ms=todosMeses().filter(temContas);if(!ms.length)return[];
+  return GRUPOS.map(g=>[g,mediaGrupo([g])]).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]).slice(0,3);
+}
+const prazoPadrao=()=>{const h=hoje(),[a,m]=h.split('-').map(Number);return (m>=10?a+1:a)+'-12'};
+function telaReservas(){
+  const L=S.reservas||[];
+  const total=r2(L.reduce((t,r)=>t+guardado(r),0));
+  const ativas=L.filter(r=>guardado(r)<r.meta);
+  const precisa=r2(ativas.reduce((t,r)=>t+porMes(r),0));
+  const sm=sobraMedia();
+  const emerg=r2(mediaGrupo(ESSENCIAIS)*3);
+  let plano='';
+  if(!L.length){
+    plano=`<p>Você ainda não tem metas. Uma boa primeira meta é uma <b>reserva de emergência</b>: o suficiente para cobrir 3 meses das contas essenciais (${ESSENCIAIS.join(', ').replace(/, ([^,]*)$/,' e $1')}).</p>
+      <p>Pelas suas contas, isso dá <b>${brl(emerg)}</b>. Até ${nomeMes(prazoPadrao())}, seriam <b>${brl(r2(emerg/Math.max(1,mesesAte(prazoPadrao()))))} por mês</b>.</p>
+      ${emerg>0?`<button class="btn pri" data-sugere="1" style="margin-top:6px">Criar essa meta</button>`:''}`;
+  }else if(!ativas.length){
+    plano='<p>Todas as suas metas foram alcançadas. Crie uma nova meta abaixo quando quiser.</p>';
+  }else{
+    const linhas=[`<p>Para cumprir suas metas no prazo, você precisa guardar <b>${brl(precisa)} por mês</b>.</p>`];
+    if(!sm)linhas.push('<p>Ainda não dá para saber quanto sobra por mês: falta um mês com receitas e contas lançadas.</p>');
+    else{
+      linhas.push(`<p>Nos meses com receitas e contas lançadas (${sm.meses.map(curtoMes).join(', ')}), sobrou em média <b>${brl(sm.media)} por mês</b>.</p>`);
+      if(sm.media>=precisa)linhas.push(`<p class="pos"><b>Cabe no seu orçamento.</b> Depois de guardar, ainda sobram cerca de ${brl(r2(sm.media-precisa))} por mês.</p>`);
+      else{
+        const gap=r2(precisa-sm.media);
+        linhas.push(`<p class="neg"><b>Hoje não cabe:</b> faltam cerca de ${brl(gap)} por mês.</p><p>Algumas saídas:</p>`);
+        const ops=[];
+        const mg=maioresGrupos();
+        if(mg.length)ops.push(`Cortar ${brl(gap)} por mês nos maiores gastos: ${mg.map(([g,v])=>esc(g)+' ('+brl(v)+' por mês)').join(', ')}.`);
+        if(sm.media>0){
+          const falta=r2(ativas.reduce((t,r)=>t+r.meta-guardado(r),0)),n=Math.ceil(falta/sm.media);
+          ops.push(n<=36?`Guardar o que sobra hoje e estender o prazo: as metas ficariam prontas por volta de ${nomeMes(somaMes(hoje(),n-1))}.`:`Só com o que sobra hoje (${brl(sm.media)} por mês), levaria mais de 3 anos. Vale começar pelos cortes acima.`);
+        }
+        ops.push('Diminuir o valor de alguma meta, ou mandar dívidas com juros altos para negociação com o botão "Não vou pagar agora".');
+        linhas.push('<ul>'+ops.map(o=>'<li>'+o+'</li>').join('')+'</ul>');
+      }
+    }
+    plano=linhas.join('');
+  }
+  const cards=L.map(r=>{
+    const g=guardado(r),f=r2(Math.max(0,r.meta-g)),pct=r.meta?Math.min(100,Math.round(g/r.meta*100)):0,n=mesesAte(r.prazo),pm=porMes(r),id=esc(r.id);
+    const ritmo=f<=0?'<div class="meta-mes pos"><b>Meta alcançada</b></div>':n<=0?`<div class="meta-mes neg">O prazo passou e faltam <b>${brl(f)}</b>. Mude o prazo abaixo.</div>`:`<div class="meta-mes">Guarde <b>${brl(pm)}</b> por mês até ${nomeMes(r.prazo)} (${n} ${n===1?'mês':'meses'})</div>`;
+    return `<div class="cartao divida">
+      <div class="topo2"><div><h3>${esc(r.nome)}</h3><p class="sub">Guardado ${brl(g)} de ${brl(r.meta)}</p></div>
+        <div style="text-align:right"><div class="falta">${f>0?brl(f):'Pronto'}</div>${f>0?'<div class="sub">falta guardar</div>':''}</div></div>
+      <div class="progresso"><i style="width:${pct}%"></i></div>
+      ${ritmo}
+      <form class="abate" data-mov="${id}"><input name="valor" inputmode="decimal" placeholder="Valor" aria-label="Valor para ${esc(r.nome)}" required><button class="btn peq pri" name="tipo" value="guardar">Guardar</button><button class="btn peq" name="tipo" value="retirar">Retirar</button></form>
+      <div class="abate"><label class="sub">Meta <input data-reserva-meta="${id}" inputmode="decimal" value="${fmt(r.meta)}" aria-label="Meta de ${esc(r.nome)}"></label><label class="sub">Prazo <input type="month" data-reserva-prazo="${id}" value="${r.prazo}" aria-label="Prazo de ${esc(r.nome)}" style="width:auto"></label><button class="btn peq" data-apaga-reserva="${id}">Apagar</button></div>
+      ${r.movs.length?`<div class="hist">${r.movs.map((x,i)=>`<span>${x.d.split('-').reverse().join('/')}: ${x.v<0?'retirou ':''}${fmt(Math.abs(x.v))}<button class="x" data-tira-mov="${i}" data-reserva="${id}" aria-label="Apagar movimento de ${fmt(Math.abs(x.v))}">×</button></span>`).join('')}</div>`:''}
+    </div>`;
+  }).join('');
+  document.getElementById('tela').innerHTML=`
+  <div class="barra"><div><h2>Reservas</h2><p class="sub">Separe dinheiro para suas metas. O que você guarda aqui não muda as contas nem o saldo dos meses.</p></div></div>
+  ${L.length?`<div class="kpis">
+    <div class="cartao kpi"><div class="rot">Total guardado</div><div class="val">${brl(total)}</div></div>
+    <div class="cartao kpi"><div class="rot">Guardar por mês</div><div class="val">${brl(precisa)}</div><div class="nota">para cumprir os prazos</div></div>
+    <div class="cartao kpi"><div class="rot">Sobra média por mês</div><div class="val ${sm&&sm.media<0?'neg':''}">${sm?brl(sm.media):'—'}</div><div class="nota">receitas menos despesas</div></div>
+  </div>`:''}
+  <div class="plano"><h3>Sugestão de planejamento</h3>${plano}</div>
+  <form class="form" id="novaReserva">
+    <label>Nova meta<input class="largo" name="nome" placeholder="Ex.: Reserva de emergência" required></label>
+    <label>Valor da meta<input class="curto" name="meta" inputmode="decimal" required></label>
+    <label>Até<input name="prazo" type="month" value="${prazoPadrao()}" required></label>
+    <button class="btn">Adicionar</button>
+  </form>
+  <div class="dividas">${cards}</div>`;
 }
 
 /* ---------- dívidas ---------- */
