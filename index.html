@@ -122,6 +122,7 @@ select.grp{border:0;background:transparent;font-size:12.5px;color:var(--tinta2);
 .form{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px}
 .form label{display:grid;gap:3px;font-size:13px;color:var(--tinta2)}
 .form input,.form select{border:1px solid #cfccc1;border-radius:8px;padding:6px 9px;background:#fff;font-size:14px;color:var(--tinta)}
+.form label[hidden]{display:none}
 .form input.largo{width:250px}.form input.curto{width:110px}
 details{margin-top:14px;font-size:14px;color:var(--tinta2)}
 details summary{cursor:pointer;font-weight:550}
@@ -172,7 +173,7 @@ const CURTO=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','
 let S=null;
 let usuario=null,versao=0,temLinha=false;
 let timer=null,gravando=false,pendente=false,travado=false,ultimoErro='';
-let parteAberta='',moverAberto='';
+let parteAberta='',moverAberto='',cartaoFiltro='',cartaoUltimo='';
 let aba='resumo';
 let mes=null;
 let soFalta=true;
@@ -236,11 +237,20 @@ function parcelaDe(l,ym){
   const a=l.parcelas[ym]||0;
   return S.cartao.incluirConferir?a+((l.aConferir||{})[ym]||0):a;
 }
-function totalCartao(ym){return r2(S.cartao.linhas.reduce((t,l)=>t+parcelaDe(l,ym),0))}
+function totalCartao(ym,cid){return r2(S.cartao.linhas.reduce((t,l)=>t+(!cid||l.cartao===cid?parcelaDe(l,ym):0),0))}
+const cartoes=()=>S.despesas.filter(d=>d.cartao);
+function migrar(o){
+  if(!o||!o.cartao)return o;
+  const porto=o.despesas.find(d=>d.cartao);
+  if(porto)o.cartao.linhas.forEach(l=>{if(!l.cartao)l.cartao=porto.id});
+  const m=o.cartao.mantidos;
+  if(m&&porto)Object.keys(m).forEach(k=>{if(/^\d{4}-\d{2}$/.test(k)){m[porto.id+'|'+k]=m[k];delete m[k]}});
+  return o;
+}
 function baseConta(d,ym){
   const v=d.valores[ym];
   if(typeof v==='number')return v;
-  return d.cartao?totalCartao(ym):0;
+  return d.cartao?totalCartao(ym,d.id):0;
 }
 const movido=(d,ym)=>(S.movidos||{})[ym+'|'+d.id]||0;
 function valorConta(d,ym){return r2(Math.max(0,baseConta(d,ym)-movido(d,ym)))}
@@ -277,7 +287,7 @@ function aConferirTotal(){
 }
 
 /* ---------- abas ---------- */
-const nomeCartao=()=>'Cartão '+S.cartao.nome;
+const nomeCartao=()=>'Cartões';
 const abasLista=()=>[['resumo','Resumo'],['prioridades','Prioridades do mês'],['despesas','Despesas'],['cartao',nomeCartao()],['receitas','Receitas'],['dividas','Abater cartões']];
 function desenhar(){
   document.getElementById('abas').innerHTML=abasLista().map(([k,n])=>`<button role="tab" aria-selected="${k===aba}" data-aba="${k}">${n}</button>`).join('');
@@ -352,11 +362,10 @@ function telaResumo(){
 }
 function listaAvisos(){
   const o=[];
-  const c=S.despesas.find(d=>d.cartao);
-  if(c)Object.keys(c.valores).sort().forEach(m=>{
-    const a=c.valores[m],b=totalCartao(m),d=r2(a-b);
-    if(Math.abs(d)>=.01&&(S.cartao.mantidos||{})[m]!==a)o.push(`<li><span>${curtoMes(m)}: você lançou <b>${brl(a)}</b> e as parcelas do cartão somam <b>${brl(b)}</b>.</span><span style="display:flex;gap:6px"><button class="btn peq" data-manter="${m}">Manter o meu</button><button class="btn peq" data-usar="${m}">Usar a soma do cartão</button></span></li>`);
-  });
+  cartoes().forEach(c=>Object.keys(c.valores).sort().forEach(m=>{
+    const a=c.valores[m],b=totalCartao(m,c.id),d=r2(a-b),k=c.id+'|'+m;
+    if(b>0&&Math.abs(d)>=.01&&(S.cartao.mantidos||{})[k]!==a)o.push(`<li><span>${esc(c.nome)}, ${curtoMes(m)}: você lançou <b>${brl(a)}</b> e as parcelas do cartão somam <b>${brl(b)}</b>.</span><span style="display:flex;gap:6px"><button class="btn peq" data-manter="${esc(k)}">Manter o meu</button><button class="btn peq" data-usar="${esc(k)}">Usar a soma do cartão</button></span></li>`);
+  }));
   const t=aConferirTotal();
   if(t>0&&!S.cartao.incluirConferir)o.push(`<li><span>Há <b>${brl(t)}</b> em parcelas do cartão que ficaram fora da soma original.</span><button class="btn peq" data-incluir="1">Incluir na conta</button></li>`);
   return o;
@@ -372,7 +381,7 @@ document.getElementById('tela').addEventListener('click',e=>{
     S.despesas.forEach(d=>{if(!d.cartao&&typeof d.valores[ant]==='number'&&typeof d.valores[mes]!=='number')d.valores[mes]=d.valores[ant]});
     salvar();desenhar();
   }
-  else if(b.dataset.usar){const c=S.despesas.find(d=>d.cartao);delete c.valores[b.dataset.usar];salvar();desenhar()}
+  else if(b.dataset.usar){const[cid,m]=b.dataset.usar.split('|');delete S.despesas.find(d=>d.id===cid).valores[m];salvar();desenhar()}
   else if(b.dataset.parte){
     const k=mes+'|'+b.dataset.parte;parteAberta=parteAberta===k?'':k;desenhar();
     const i=document.querySelector('#parte input');if(i)i.focus();
@@ -432,8 +441,9 @@ document.getElementById('tela').addEventListener('click',e=>{
     if(confirm('Apagar este abatimento?')){c.abatimentos.splice(Number(b.dataset.tiraAbate),1);salvar();desenhar()}
   }
   else if(b.dataset.manter){
-    const c=S.despesas.find(d=>d.cartao),m=S.cartao.mantidos=S.cartao.mantidos||{};
-    (b.dataset.manter==='todos'?Object.keys(c.valores):[b.dataset.manter]).forEach(k=>{m[k]=c.valores[k]});
+    const m=S.cartao.mantidos=S.cartao.mantidos||{};
+    const ks=b.dataset.manter==='todos'?cartoes().flatMap(c=>Object.keys(c.valores).map(x=>c.id+'|'+x)):[b.dataset.manter];
+    ks.forEach(k=>{const[cid,x]=k.split('|');m[k]=S.despesas.find(d=>d.id===cid).valores[x]});
     salvar();desenhar();
   }
   else if(b.dataset.incluir){S.cartao.incluirConferir=true;salvar();desenhar()}
@@ -477,6 +487,8 @@ document.getElementById('tela').addEventListener('change',e=>{
     if(!n||n<=0){t.value=fmt(c.total);return}
     c.total=n;salvar();desenhar();return;
   }
+  if(t.id==='cartaoFiltro'){cartaoFiltro=t.value;desenhar();return}
+  if(t.name==='cartao'&&t.form&&t.form.id==='novaCompra'){document.getElementById('novoCartao').hidden=t.value!=='__novo';if(t.value==='__novo')document.querySelector('#novoCartao input').focus();return}
   if(t.id==='soFalta'){soFalta=t.checked;desenhar();return}
   if(t.id==='incluirConferir'){S.cartao.incluirConferir=t.checked;salvar();desenhar();return}
   if(t.dataset.grupo){S.despesas.find(d=>d.id===t.dataset.grupo).grupo=t.value;salvar();return}
@@ -528,15 +540,23 @@ document.getElementById('tela').addEventListener('submit',e=>{
     S.receitas.push({id:novoId('r'),nome,valores:{}});salvar();desenhar();
   }else if(f.id==='novaCompra'){
     const desc=d.get('desc').trim(),v=lerNumero(d.get('valor')),n=Math.floor(Number(d.get('n'))),ini=d.get('ini');
+    let cid=d.get('cartao');const novo=(d.get('novo')||'').trim();
     if(!desc||!v||v<=0||!(n>=1)||!/^\d{4}-\d{2}$/.test(ini)){alert('Preencha a descrição, o valor da parcela, o número de parcelas e o primeiro mês.');return}
+    if(cid==='__novo'){
+      if(!novo){alert('Digite o nome do cartão novo.');return}
+      const ja=S.despesas.find(x=>x.nome.toLowerCase()===novo.toLowerCase());
+      if(ja){ja.cartao=true;cid=ja.id}
+      else{cid=novoId('c');S.despesas.push({id:cid,nome:novo,grupo:'Cartões e crediário',valores:{},cartao:true})}
+    }else{const c=S.despesas.find(x=>x.id===cid);if(!c){alert('Escolha o cartão.');return}c.cartao=true}
     const parcelas={};for(let i=0;i<n;i++)parcelas[somaMes(ini,i)]=v;
-    S.cartao.linhas.push({id:novoId('n'),desc,tipo:'manual',parcelas,aConferir:{}});salvar();desenhar();
+    S.cartao.linhas.push({id:novoId('n'),cartao:cid,desc,tipo:'manual',parcelas,aConferir:{}});
+    cartaoUltimo=cid;salvar();desenhar();
   }
 });
 function atualizarRodape(){
   document.querySelectorAll('[data-total]').forEach(c=>{
     const[k,ym]=c.dataset.total.split('|');
-    const v=k==='desp'?totalDespesas(ym):k==='rec'?totalReceitas(ym):k==='cartao'?totalCartao(ym):null;
+    const v=k==='desp'?totalDespesas(ym):k==='rec'?totalReceitas(ym):k==='cartao'?totalCartao(ym,cartaoFiltro||undefined):null;
     if(k==='saldo'){
       if(fechado(ym)){const s=r2(totalReceitas(ym)-totalDespesas(ym));c.textContent=fmt(s);c.className=s<0?'neg':'pos'}else{c.textContent='—';c.className=''}
     }else c.textContent=fmt(v);
@@ -552,7 +572,7 @@ function telaDespesas(){
     <td class="txt"><select class="grp" data-grupo="${esc(d.id)}" aria-label="Grupo de ${esc(d.nome)}">${GRUPOS.map(g=>`<option ${g===d.grupo?'selected':''}>${esc(g)}</option>`).join('')}</select></td>
     <td><input class="cel" style="width:56px;text-align:center" data-dia="${esc(d.id)}" inputmode="numeric" maxlength="2" value="${d.dia||''}" aria-label="Dia de vencimento de ${esc(d.nome)}"></td>
     ${ms.map(m=>{
-      const v=d.valores[m],auto=d.cartao&&typeof v!=='number'?totalCartao(m):0;
+      const v=d.valores[m],auto=d.cartao&&typeof v!=='number'?totalCartao(m,d.id):0;
       return `<td class="${m===h?'atual':''}"><input class="cel" inputmode="decimal" data-tipo="conta" data-id="${esc(d.id)}" data-ym="${m}" value="${typeof v==='number'?fmt(v):''}" placeholder="${auto?fmt(auto):''}" aria-label="${esc(d.nome)} ${curtoMes(m)}">${movido(d,m)?`<span class="confere" title="Valor mandado para Dívidas">→ dívida ${fmt(movido(d,m))}</span>`:''}</td>`;
     }).join('')}</tr>`).join('');
   document.getElementById('tela').innerHTML=`
@@ -600,43 +620,53 @@ function telaReceitas(){
 
 /* ---------- cartão ---------- */
 function telaCartao(){
-  const ms=mesesDe('0000-00').filter(m=>S.cartao.linhas.some(l=>parcelaDe(l,m)||(l.parcelas[m]!==undefined)));
+  const todos=cartoes();
+  if(cartaoFiltro&&!todos.some(c=>c.id===cartaoFiltro))cartaoFiltro='';
+  const daqui=l=>!cartaoFiltro||l.cartao===cartaoFiltro;
+  const linhas=S.cartao.linhas.filter(daqui);
+  const tot=m=>totalCartao(m,cartaoFiltro||undefined);
+  const ms=mesesDe('0000-00').filter(m=>linhas.some(l=>parcelaDe(l,m)||(l.parcelas[m]!==undefined)));
   const h=hoje(),t=aConferirTotal();
   const visivel=l=>!soFalta||Object.keys(l.parcelas).concat(S.cartao.incluirConferir?Object.keys(l.aConferir||{}):[]).some(m=>m>=h);
   const celulas=l=>ms.map(m=>{
     const v=l.parcelas[m],c=(l.aConferir||{})[m];
     return `<td class="${m===h?'atual':''}"><input class="cel" inputmode="decimal" data-tipo="linha" data-id="${esc(l.id)}" data-ym="${m}" value="${typeof v==='number'?fmt(v):''}" placeholder="${c&&S.cartao.incluirConferir?fmt(c):''}" aria-label="${esc(l.desc)} ${curtoMes(m)}">${c&&!S.cartao.incluirConferir?`<span class="confere" title="Parcela que a planilha não somou">+${fmt(c)}?</span>`:''}</td>`;
   }).join('');
-  const parcTxt=l=>l.total?`${l.atual} de ${l.total} em set/26`:'';
+  const parcTxt=l=>l.total?`${l.atual} de ${l.total} em set/26`:(Object.keys(l.parcelas).length>1?Object.keys(l.parcelas).length+' parcelas':'');
   const dataTxt=l=>l.data?l.data.split('-').reverse().join('/'):'';
   const linha=l=>`<tr><td class="nome"><div class="wrap"><span style="padding:6px 8px;overflow:hidden;text-overflow:ellipsis;flex:1" title="${esc(l.desc)}">${esc(l.desc)}</span>${l.tipo==='resto'?'':`<button class="x" data-apaga-linha="${esc(l.id)}" aria-label="Apagar ${esc(l.desc)}">×</button>`}</div></td><td class="txt">${dataTxt(l)}</td><td class="txt">${parcTxt(l)}</td>${celulas(l)}</tr>`;
-  const sec=(n,ls)=>ls.length?`<tr class="sec"><td class="nome">${n}</td><td colspan="${ms.length+2}"></td></tr>`+ls.map(linha).join(''):'';
-  const vis=S.cartao.linhas.filter(visivel);
-  const prox=mesesDe(h >= ms[0] ? h : ms[0]);
-  const futuro=prox.reduce((a,m)=>a+totalCartao(m),0);
-  const ultimo=[...ms].reverse().find(m=>totalCartao(m)>0);
+  const ordemTipo={manual:0,resto:1,fatura:2};
+  const secoes=todos.filter(c=>!cartaoFiltro||c.id===cartaoFiltro).map(c=>{
+    const ls=linhas.filter(l=>l.cartao===c.id&&visivel(l)).sort((a,b)=>ordemTipo[a.tipo]-ordemTipo[b.tipo]);
+    if(!ls.length)return'';
+    return `<tr class="sec"><td class="nome">${esc(c.nome)}</td><td colspan="2"></td>${ms.map(m=>`<td class="${m===h?'atual':''}" style="text-align:right">${totalCartao(m,c.id)?fmt(totalCartao(m,c.id)):''}</td>`).join('')}</tr>`+ls.map(linha).join('');
+  }).join('');
+  const prox=ms.length?mesesDe(h>=ms[0]?h:ms[0]):[];
+  const futuro=prox.reduce((a,m)=>a+tot(m),0);
+  const ultimo=[...ms].reverse().find(m=>tot(m)>0);
+  const opcoes=S.despesas.filter(d=>d.cartao||d.grupo==='Cartões e crediário');
+  const padrao=cartaoUltimo||cartaoFiltro||(todos[0]&&todos[0].id)||'';
   document.getElementById('tela').innerHTML=`
-  <div class="barra"><div><h2>${esc(nomeCartao())}</h2><p class="sub">Faltam ${brl(futuro)} em parcelas, de ${curtoMes(prox[0])} até ${curtoMes(ultimo)}. O total de cada mês alimenta a linha do cartão nas despesas.</p></div>
-    <div style="display:flex;gap:16px;flex-wrap:wrap">
+  <div class="barra"><div><h2>Cartões</h2><p class="sub">${futuro>0?`Faltam ${brl(futuro)} em parcelas, de ${curtoMes(prox[0])} até ${curtoMes(ultimo)}.`:'Nenhuma parcela daqui para frente.'} O total de cada cartão alimenta a linha dele nas despesas, nos meses em que você não digitou a fatura.</p></div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+      <label class="check">Ver <select id="cartaoFiltro" style="border:1px solid #cfccc1;border-radius:8px;padding:4px 8px;background:#fff"><option value="">Todos os cartões</option>${todos.map(c=>`<option value="${esc(c.id)}" ${c.id===cartaoFiltro?'selected':''}>${esc(c.nome)}</option>`).join('')}</select></label>
       <label class="check"><input type="checkbox" id="soFalta" ${soFalta?'checked':''}>Só o que ainda falta pagar</label>
       ${t>0?`<label class="check"><input type="checkbox" id="incluirConferir" ${S.cartao.incluirConferir?'checked':''}>Somar as parcelas a conferir (${brl(t)})</label>`:''}
     </div></div>
   <form class="form" id="novaCompra">
+    <label>Cartão<select name="cartao">${opcoes.map(c=>`<option value="${esc(c.id)}" ${c.id===padrao?'selected':''}>${esc(c.nome)}</option>`).join('')}<option value="__novo">Outro cartão…</option></select></label>
+    <label id="novoCartao" hidden>Nome do cartão<input name="novo" class="curto" style="width:150px"></label>
     <label>Nova compra parcelada<input class="largo" name="desc" required></label>
     <label>Valor da parcela<input class="curto" name="valor" inputmode="decimal" required></label>
     <label>Parcelas<input class="curto" name="n" type="number" min="1" max="60" required></label>
     <label>Primeira parcela em<input name="ini" type="month" value="${h}" required></label>
     <button class="btn">Adicionar</button>
   </form>
-  <div class="rola"><table>
+  ${ms.length?`<div class="rola"><table>
     <thead><tr><th class="nome">Compra</th><th style="text-align:left">Data</th><th style="text-align:left">Parcela</th>${ms.map(m=>`<th class="${m===h?'atual':''}">${curtoMes(m)}</th>`).join('')}</tr></thead>
-    <tbody>
-      ${sec('Lançadas à parte',vis.filter(l=>l.tipo==='manual'))}
-      ${sec('Sem detalhe',vis.filter(l=>l.tipo==='resto'))}
-      ${sec('Compras da fatura',vis.filter(l=>l.tipo==='fatura'))}
-    </tbody>
-    <tfoot><tr><td class="nome">Total do mês</td><td></td><td></td>${ms.map(m=>`<td data-total="cartao|${m}" class="${m===h?'atual':''}">${fmt(totalCartao(m))}</td>`).join('')}</tr></tfoot>
-  </table></div>`;
+    <tbody>${secoes}</tbody>
+    <tfoot><tr><td class="nome">Total do mês</td><td></td><td></td>${ms.map(m=>`<td data-total="cartao|${m}" class="${m===h?'atual':''}">${fmt(tot(m))}</td>`).join('')}</tr></tfoot>
+  </table></div>`:'<p class="sub">Nenhuma compra neste cartão ainda.</p>'}`;
 }
 
 /* ---------- prioridades ---------- */
@@ -849,7 +879,7 @@ function telaImportar(){
 async function carregarCopia(o){
   const antes=S;
   document.getElementById('tela').innerHTML='<div class="cartao entrada"><h2>Gravando seus dados…</h2></div>';
-  S=o;mes=null;pendente=true;ultimoErro='';
+  S=migrar(o);mes=null;pendente=true;ultimoErro='';
   await gravar();
   let motivo=pendente?ultimoErro:'';
   if(!motivo&&!travado){
@@ -873,7 +903,7 @@ async function abrirDados(){
   const r=await sb.from('financas').select('dados,versao').eq('dono',usuario.id).maybeSingle();
   if(r.error){document.getElementById('tela').innerHTML='<p class="erro-txt">Não consegui abrir os dados. Recarregue a página.</p>';return}
   if(!r.data){telaImportar();return}
-  S=r.data.dados;versao=r.data.versao;temLinha=true;
+  S=migrar(r.data.dados);versao=r.data.versao;temLinha=true;
   aviso('Tudo salvo');desenhar();
 }
 (async()=>{
