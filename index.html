@@ -160,6 +160,7 @@ body.fora nav,body.fora footer{display:none}
   <div>
     <button class="btn peq" id="baixar">Baixar cópia</button>
     <button class="btn peq" id="abrir">Abrir cópia</button>
+    <button class="btn peq" id="trocarSenha">Trocar senha</button>
     <button class="btn peq" id="sair">Sair</button>
     <input type="file" id="arquivo" accept=".json,application/json" hidden>
   </div>
@@ -339,7 +340,7 @@ function telaResumo(){
   </div>
   <div class="kpis">
     <div class="cartao kpi"><div class="rot">Receitas</div><div class="val">${comRec?brl(rec):'—'}</div><div class="nota">${comRec?'':'nada lançado ainda'}</div></div>
-    <div class="cartao kpi"><div class="rot">Despesas</div><div class="val">${brl(des)}</div><div class="nota">${completo?'':'só o cartão lançado'}</div></div>
+    <div class="cartao kpi"><div class="rot">Despesas</div><div class="val">${brl(des)}</div><div class="nota">${completo?'':des>0?'só o cartão lançado':'nada lançado ainda'}</div></div>
     <div class="cartao kpi"><div class="rot">Saldo do mês</div>${kSaldo}</div>
     <div class="cartao kpi"><div class="rot">Acumulado até aqui</div><div class="val ${acumulado(mes)<0?'neg':''}">${brl(acumulado(mes))}</div><div class="nota">soma dos meses completos</div></div>
   </div>
@@ -379,8 +380,10 @@ function listaAvisos(){
 }
 document.getElementById('tela').addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
+  if(b.id==='cancelaSenha'){desenhar();return}
   if(b.id==='trocaModo'){modoCriar=!modoCriar;erroLogin='';telaLogin();return}
   if(b.id==='importar'){document.getElementById('arquivo').click();return}
+  if(b.id==='doZero'){carregarCopia({versao:1,despesas:[],receitas:[],cartao:{nome:'',linhas:[],incluirConferir:false},pagos:{}});return}
   if(b.dataset.mes){const l=todosMeses();mes=l[l.indexOf(mes)+Number(b.dataset.mes)];desenhar()}
   else if(b.id==='copiar'){
     const l=todosMeses(),ant=l[l.indexOf(mes)-1];
@@ -535,6 +538,15 @@ document.getElementById('tela').addEventListener('change',e=>{
 document.getElementById('tela').addEventListener('submit',e=>{
   e.preventDefault();const f=e.target,d=new FormData(f);
   if(f.id==='login'){entrar(d.get('email').trim(),d.get('senha'));return}
+  if(f.id==='novaSenha'){
+    const s1=d.get('s1'),s2=d.get('s2');
+    if(s1!==s2){alert('As duas senhas não são iguais.');return}
+    sb.auth.updateUser({password:s1}).then(r=>{
+      if(r.error){alert(/same|different/i.test(r.error.message)?'A nova senha precisa ser diferente da atual.':'Não consegui trocar a senha. Tente de novo.');return}
+      alert('Senha trocada. Use a nova senha na próxima vez que entrar.');desenhar();
+    });
+    return;
+  }
   if(f.id==='parte'){
     const c=S.despesas.find(x=>x.id===f.dataset.conta),n=lerNumero(d.get('valor')),falta=r2(valorConta(c,mes)-pagoDe(c,mes));
     if(!n||n<=0){alert('Digite o valor pago.');return}
@@ -621,7 +633,7 @@ function telaDespesas(){
   <div class="barra"><div><h2>Despesas mês a mês</h2><p class="sub">Clique no valor para mudar. Em itálico: valor que vem sozinho do cartão.</p></div></div>
   <form class="form" id="novaConta">
     <label>Nova conta<input class="largo" name="nome" required></label>
-    <label>Grupo<select name="grupo">${GRUPOS.map(g=>`<option>${esc(g)}</option>`).join('')}</select></label>
+    <label>Grupo<select name="grupo">${GRUPOS.map(g=>`<option ${g==='Outros'?'selected':''}>${esc(g)}</option>`).join('')}</select></label>
     <button class="btn">Adicionar</button>
   </form>
   <div class="rola"><table>
@@ -696,8 +708,8 @@ function telaCartao(){
       ${t>0?`<label class="check"><input type="checkbox" id="incluirConferir" ${S.cartao.incluirConferir?'checked':''}>Somar as parcelas a conferir (${brl(t)})</label>`:''}
     </div></div>
   <form class="form" id="novaCompra">
-    <label>Cartão<select name="cartao">${opcoes.map(c=>`<option value="${esc(c.id)}" ${c.id===padrao?'selected':''}>${esc(c.nome)}</option>`).join('')}<option value="__novo">Outro cartão…</option></select></label>
-    <label id="novoCartao" hidden>Nome do cartão<input name="novo" class="curto" style="width:150px"></label>
+    <label>Cartão<select name="cartao">${opcoes.map(c=>`<option value="${esc(c.id)}" ${c.id===padrao?'selected':''}>${esc(c.nome)}</option>`).join('')}<option value="__novo" ${opcoes.length?'':'selected'}>${opcoes.length?'Outro cartão…':'Novo cartão…'}</option></select></label>
+    <label id="novoCartao" ${opcoes.length?'hidden':''}>Nome do cartão<input name="novo" class="curto" style="width:150px"></label>
     <label>Nova compra parcelada<input class="largo" name="desc" required></label>
     <label>Valor da parcela<input class="curto" name="valor" inputmode="decimal" required></label>
     <label>Parcelas<input class="curto" name="n" type="number" min="1" max="60" required></label>
@@ -968,6 +980,16 @@ document.getElementById('arquivo').addEventListener('change',async e=>{
     if(!S||confirm('Trocar tudo o que está aqui pelo conteúdo dessa cópia?'))await carregarCopia(o);
   }catch(_){alert('Esse arquivo não é uma cópia deste sistema.')}
 });
+document.getElementById('trocarSenha').addEventListener('click',()=>{
+  document.getElementById('tela').innerHTML=`<form class="cartao entrada" id="novaSenha">
+    <h2>Trocar senha</h2>
+    <label>Nova senha<input name="s1" type="password" minlength="8" autocomplete="new-password" required></label>
+    <label>Repita a nova senha<input name="s2" type="password" minlength="8" autocomplete="new-password" required></label>
+    <p class="sub" style="margin:0">Mínimo de 8 caracteres.</p>
+    <button class="btn pri">Salvar nova senha</button>
+    <button type="button" class="link" id="cancelaSenha">Cancelar</button>
+  </form>`;
+});
 document.getElementById('sair').addEventListener('click',async()=>{
   if(pendente)await gravar();
   await sb.auth.signOut();location.reload();
@@ -999,9 +1021,10 @@ async function entrar(email,senha){
 }
 function telaImportar(){
   document.getElementById('abas').innerHTML='';
-  document.getElementById('tela').innerHTML=`<div class="cartao entrada"><h2>Carregue seus dados</h2>
-    <p class="sub">Escolha o arquivo com os dados para começar. Depois disso eles ficam guardados na sua conta.</p>
-    <button class="btn pri" id="importar">Escolher arquivo</button></div>`;
+  document.getElementById('tela').innerHTML=`<div class="cartao entrada"><h2>Boas-vindas!</h2>
+    <p class="sub">Sua conta ainda está vazia. Comece do zero e lance suas contas, receitas e cartões. Se você já tiver um arquivo de cópia deste sistema, pode carregá-lo.</p>
+    <button class="btn pri" id="doZero">Começar do zero</button>
+    <button class="btn" id="importar">Carregar um arquivo de cópia</button></div>`;
 }
 async function carregarCopia(o){
   const antes=S;
